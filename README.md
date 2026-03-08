@@ -31,7 +31,17 @@ Measures RTT latency between two systems as well as the jitter.
 ### 4. multicast-tool
 Measures throughput over multicast. Please note that with no multicast clients, it will likely be line rate. 
 
-### 5. metrics-server 
+### 5. udp-bench
+Measures raw UDP throughput, loss, and jitter.
+- **Server**: Run `udp-bench server --bind 0.0.0.0:9000`
+- **Client**: Run `udp-bench client --target <ip>:9000 --rate 100mbps`
+
+### 6. mtu-discovery
+Finds the path MTU using binary search and the DF flag.
+- **Server**: Run `mtu-discovery server --bind 0.0.0.0:9001`
+- **Client**: Run `mtu-discovery client --target <ip>:9001`
+
+### 7. metrics-server 
 Centralized metrics collection hub and dashboard. It displays recent results for each tool in a dedicated tab.
 - **Dashboard**: Access via `http://localhost:3000/dashboard` in your browser.
 - **Database**: Stores all metrics in a local SQLite database.

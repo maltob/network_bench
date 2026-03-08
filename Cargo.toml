@@ -6,6 +6,8 @@ members = [
     "multicast-tool",
     "transfer-tool",
     "sip-tool",
+    "udp-bench",
+    "mtu-discovery",
 ]
 resolver = "2"
 

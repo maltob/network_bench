@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "common",
+    "metrics-server",
+    "latency-tool",
+    "multicast-tool",
+    "transfer-tool",
+    "sip-tool",
+]
+resolver = "2"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }

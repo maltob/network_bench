@@ -1,0 +1,8 @@
+target/
+**/*.rs.bk
+metrics.db
+metrics.db-journal
+build_error.txt
+.vscode/
+.idea/
+*.log

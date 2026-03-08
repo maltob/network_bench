@@ -1,0 +1,27 @@
+[package]
+name = "transfer-tool"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common = { path = "../common" }
+tokio = { workspace = true }
+serde = { workspace = true }
+anyhow = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+quinn = "0.11"
+rustls = { version = "0.23", features = ["ring", "std"] }
+rcgen = "0.13"
+futures-util = "0.3"
+rustls-pemfile = "2"
+axum = { version = "0.7", features = ["http2"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
+tower-http = { version = "0.5", features = ["trace"] }
+tokio-rustls = "0.26"
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+tower = "0.4"
+async-stream = "0.3"
+rand = "0.8"

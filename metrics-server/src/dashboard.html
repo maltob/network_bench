@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Benchmarking Suite - Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #020617;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.3);
+            --border: rgba(51, 65, 85, 0.5);
+            --success: #22c55e;
+            --danger: #ef4444;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, system-ui, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+            background-image:
+                radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.05) 0%, transparent 40%);
+        }
+
+        header {
+            padding: 1rem 2rem;
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            font-size: 1.25rem;
+            font-weight: 800;
+            background: linear-gradient(to right, #38bdf8, #818cf8);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.025em;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        .status-dot.disconnected {
+            background: var(--danger);
+            box-shadow: 0 0 8px var(--danger);
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .tab-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 2rem;
+            overflow-x: auto;
+            padding-bottom: 8px;
+            scrollbar-width: thin;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            border-radius: 8px;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            cursor: pointer;
+            font-weight: 600;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .tab:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+
+        .tab.active {
+            background: var(--accent);
+            color: var(--bg-color);
+            border-color: var(--accent);
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .dashboard-layout {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 2rem;
+        }
+
+        @media (max-width: 700px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card-title {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-box {
+            background: rgba(15, 23, 42, 0.4);
+            border-radius: 12px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+
+        .chart-container {
+            height: 300px;
+            position: relative;
+        }
+
+        .feed-card {
+            max-height: 450px;
+        }
+
+        .table-wrapper {
+            overflow: auto;
+            flex-grow: 1;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 12px;
+            background: rgba(15, 23, 42, 0.8);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            color: var(--text-secondary);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-primary);
+            white-space: nowrap;
+        }
+
+        tr:hover {
+            background: rgba(56, 189, 248, 0.05);
+        }
+
+        .timestamp {
+            font-family: monospace;
+            color: var(--text-secondary);
+        }
+
+        .ip-pill {
+            background: rgba(56, 189, 248, 0.1);
+            color: var(--accent);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-family: monospace;
+            border: 1px solid rgba(56, 189, 248, 0.2);
+        }
+
+        .system-pill {
+            background: var(--border);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem;
+            color: var(--text-secondary);
+        }
+
+        .nodes-footer {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: rgba(15, 23, 42, 0.3);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+
+        .node-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .node-chip {
+            padding: 6px 12px;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .node-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--success);
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="logo">NETWORK BENCH</div>
+        <div class="controls" style="display: flex; gap: 1rem; align-items: center;">
+            <div class="control-group" style="display: flex; align-items: center; gap: 8px;">
+                <label style="font-size: 0.7rem; color: var(--text-secondary);">VIEW:</label>
+                <select id="chart-duration" style="background: var(--card-bg); border: 1px solid var(--border); color: var(--text-primary); border-radius: 4px; padding: 2px 6px; font-size: 0.75rem;">
+                    <option value="60000">1 MINUTE</option>
+                    <option value="300000" selected>5 MINUTES</option>
+                    <option value="900000">15 MINUTES</option>
+                </select>
+            </div>
+            <div class="control-group" style="display: flex; align-items: center; gap: 8px;">
+                <label style="font-size: 0.7rem; color: var(--text-secondary);">SMOOTHING:</label>
+                <select id="agg-window" style="background: var(--card-bg); border: 1px solid var(--border); color: var(--text-primary); border-radius: 4px; padding: 2px 6px; font-size: 0.75rem;">
+                    <option value="15000">15 SEC</option>
+                    <option value="60000" selected>60 SEC</option>
+                    <option value="300000">5 MIN</option>
+                </select>
+            </div>
+        </div>
+        <div class="status-badge">
+            <div id="status-dot" class="status-dot"></div>
+            <span id="status-text">CONNECTED</span>
+        </div>
+    </header>
+
+    <div class="container">
+        <div id="tab-bar" class="tab-bar"></div>
+
+        <div id="main-view" class="dashboard-layout" style="display: none;">
+            <div id="charts-area" class="charts-grid"></div>
+
+            <div class="card feed-card">
+                <div class="card-title">LIVE DATA STREAM</div>
+                <div class="table-wrapper">
+                    <table id="feed-table">
+                        <thead>
+                            <tr id="table-head">
+                                <th>SYSTEM</th>
+                                <th>SRC IP</th>
+                                <th>TARGET IP</th>
+                                <th>TIME</th>
+                            </tr>
+                        </thead>
+                        <tbody id="feed-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="nodes-footer">
+                <div class="card-title" style="font-size: 0.7rem; margin-bottom: 10px;">ACTIVE REPORTING NODES</div>
+                <div id="node-list" class="node-list"></div>
+            </div>
+        </div>
+
+        <div id="empty-view" class="empty-state">
+            <h2 style="color: var(--accent)">Waiting for Metrics...</h2>
+            <p>Run any benchmark tool with reporting enabled to see data here.</p>
+        </div>
+    </div>
+
+    <script>
+        const state = {
+            activeTool: null,
+            tools: new Set(),
+            metrics: {}, // tool -> type -> { history: [], aggHistory: { labels: [], key -> {max, min, mean} } }
+            toolKeys: {}, // tool -> Set of all keys seen
+            charts: {},
+            maxPoints: 100 // Scale dynamically based on duration
+        };
+
+        function switchTab(toolName) {
+            state.activeTool = toolName;
+            document.querySelectorAll('.tab').forEach(t => {
+                t.classList.toggle('active', t.dataset.tool === toolName);
+            });
+            updateView();
+        }
+
+        function updateView() {
+            if (!state.activeTool) return;
+            const mainView = document.getElementById('main-view');
+            const emptyView = document.getElementById('empty-view');
+            
+            mainView.style.display = 'flex';
+            emptyView.style.display = 'none';
+
+            const toolData = state.metrics[state.activeTool];
+            if (!toolData) return;
+
+            updateFeedTable(state.activeTool);
+
+            const chartsArea = document.getElementById('charts-area');
+            const activeKeys = new Set();
+            const cleanTool = state.activeTool.replace(/[^a-zA-Z0-9]/g, '');
+
+            for (const mType in toolData) {
+                const data = toolData[mType];
+                if (!data.history || data.history.length === 0) continue;
+
+                const keys = Object.keys(data.history[0].values);
+                keys.forEach(key => {
+                    const fullKey = `${mType}:${key}`;
+                    activeKeys.add(fullKey);
+                    const cleanType = mType.replace(/[^a-zA-Z0-9]/g, '');
+                    const cleanKey = key.replace(/[^a-zA-Z0-9]/g, '');
+                    const cardId = `card-${cleanTool}-${cleanType}-${cleanKey}`;
+                    
+                    let card = document.getElementById(cardId);
+                    if (!card) {
+                        card = document.createElement('div');
+                        card.className = 'card';
+                        card.id = cardId;
+                        card.dataset.tool = state.activeTool;
+                        card.innerHTML = `
+                            <div class="card-title">${key.replace(/_/g, ' ').toUpperCase()} (${mType.toUpperCase()})</div>
+                            <div id="stats-${cardId}" class="stat-grid"></div>
+                            <div class="chart-container">
+                                <canvas id="canvas-${cardId}"></canvas>
+                            </div>
+                        `;
+                        chartsArea.appendChild(card);
+                    }
+                    card.style.display = 'flex';
+                    renderChart(state.activeTool, mType, key, cardId);
+                });
+            }
+
+            Array.from(chartsArea.children).forEach(child => {
+                if (child.dataset.tool !== state.activeTool) {
+                    child.style.display = 'none';
+                }
+            });
+
+            updateNodeList(state.activeTool);
+        }
+
+        function updateFeedTable(toolName) {
+            const toolData = state.metrics[toolName];
+            const feedBody = document.getElementById('feed-body');
+            const tableHead = document.getElementById('table-head');
+
+            let allReports = [];
+            for (const type in toolData) {
+                allReports = allReports.concat(toolData[type].history);
+            }
+            allReports.sort((a, b) => b.timestamp - a.timestamp);
+
+            if (allReports.length > 0) {
+                const keys = Array.from(state.toolKeys[toolName] || []).sort();
+                tableHead.innerHTML = '<th>SYSTEM</th><th>SRC IP</th><th>TARGET IP</th><th>TIME</th>' + 
+                    keys.map(k => `<th>${k.toUpperCase()}</th>`).join('');
+
+                feedBody.innerHTML = allReports.slice(0, 50).map(r => {
+                    const time = new Date(r.timestamp / 1000000).toLocaleTimeString();
+                    const valCols = keys.map(k => {
+                        const val = r.values[k];
+                        return `<td>${val !== undefined ? val.toFixed(2) : '-'}</td>`;
+                    }).join('');
+                    const srcIp = r.tags.system_ip || '-';
+                    const targetIp = r.tags.target_ip || r.tags.target || '-';
+                    return `<tr>
+                        <td><span class="system-pill" title="${r.system_name}">${r.system_name}</span></td>
+                        <td><span class="ip-pill">${srcIp}</span></td>
+                        <td><span class="ip-pill">${targetIp}</span></td>
+                        <td class="timestamp">${time}</td>
+                        ${valCols}
+                    </tr>`;
+                }).join('');
+            }
+        }
+
+        function aggregateAll() {
+            const now = Date.now();
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const aggWindow = parseInt(document.getElementById('agg-window').value);
+            const duration = parseInt(document.getElementById('chart-duration').value);
+            state.maxPoints = Math.ceil(duration / 1000);
+
+            for (const toolName of state.tools) {
+                const toolData = state.metrics[toolName];
+                for (const type in toolData) {
+                    const data = toolData[type];
+                    if (data.history.length === 0) continue;
+
+                    if (!data.aggHistory) data.aggHistory = { labels: [] };
+                    data.aggHistory.labels.push(timeStr);
+                    if (data.aggHistory.labels.length > state.maxPoints) data.aggHistory.labels.shift();
+
+                    const keys = Array.from(state.toolKeys[toolName]);
+                    const recentReports = data.history.filter(h => (now - h.timestamp / 1000000) < aggWindow);
+
+                    keys.forEach(key => {
+                        if (!data.aggHistory[key]) data.aggHistory[key] = { max: [], min: [], mean: [] };
+
+                        const values = recentReports.map(r => r.values[key]).filter(v => v !== undefined);
+                        const max = values.length ? Math.max(...values) : 0;
+                        const min = values.length ? Math.min(...values) : 0;
+                        const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+
+                        data.aggHistory[key].max.push(max);
+                        data.aggHistory[key].min.push(min);
+                        data.aggHistory[key].mean.push(mean);
+
+                        if (data.aggHistory[key].max.length > state.maxPoints) {
+                            data.aggHistory[key].max.shift();
+                            data.aggHistory[key].min.shift();
+                            data.aggHistory[key].mean.shift();
+                        }
+                    });
+                }
+            }
+            updateView();
+        }
+
+        function renderChart(toolName, type, key, cardId) {
+            const data = state.metrics[toolName][type];
+            if (!data.aggHistory || !data.aggHistory[key]) return;
+
+            const agg = data.aggHistory[key];
+            const max = agg.max[agg.max.length - 1] || 0;
+            const min = agg.min[agg.min.length - 1] || 0;
+            const mean = agg.mean[agg.mean.length - 1] || 0;
+
+            const statsDiv = document.getElementById(`stats-${cardId}`);
+            if (statsDiv) {
+                statsDiv.innerHTML = `
+                    <div class="stat-box"><div class="stat-label">MAX</div><div class="stat-value">${max.toFixed(2)}</div></div>
+                    <div class="stat-box"><div class="stat-label">AVG</div><div class="stat-value" style="color:var(--accent)">${mean.toFixed(2)}</div></div>
+                    <div class="stat-box"><div class="stat-label">MIN</div><div class="stat-value">${min.toFixed(2)}</div></div>
+                `;
+            }
+
+            const canvasId = `canvas-${cardId}`;
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+
+            if (!state.charts[cardId]) {
+                const ctx = canvas.getContext('2d');
+                state.charts[cardId] = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: data.aggHistory.labels, datasets: [] },
+                    options: {
+                        responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
+                        scales: {
+                            x: { 
+                                grid: { display: false },
+                                ticks: { 
+                                    color: '#64748b', 
+                                    font: { size: 9 },
+                                    maxRotation: 0,
+                                    callback: function(val, index) {
+                                        // Show every 10th label to avoid crowding
+                                        return index % 10 === 0 ? this.getLabelForValue(val) : '';
+                                    }
+                                }
+                            },
+                            y: { 
+                                grid: { color: 'rgba(51, 65, 85, 0.2)' }, 
+                                ticks: { color: '#64748b', font: { size: 10 } },
+                                beginAtZero: true
+                            }
+                        },
+                        plugins: { 
+                            legend: { 
+                                display: true, 
+                                position: 'top', 
+                                align: 'end',
+                                labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 } }
+                            } 
+                        }
+                    }
+                });
+            }
+
+            const chart = state.charts[cardId];
+            chart.data.labels = data.aggHistory.labels;
+            chart.data.datasets = [
+                { label: 'MAX', data: [...agg.max], borderColor: '#ef4444', borderWidth: 1, pointRadius: 0, tension: 0.3 },
+                { label: 'AVG', data: [...agg.mean], borderColor: '#38bdf8', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true, backgroundColor: 'rgba(56, 189, 248, 0.1)' },
+                { label: 'MIN', data: [...agg.min], borderColor: '#22c55e', borderWidth: 1, pointRadius: 0, tension: 0.3 }
+            ];
+            chart.update();
+        }
+
+        function updateNodeList(toolName) {
+            const toolData = state.metrics[toolName];
+            const list = document.getElementById('node-list');
+            const systems = new Map();
+
+            for (const type in toolData) {
+                toolData[type].history.forEach(h => {
+                    const key = `${h.system_name} (${h.tags.system_ip || '-'})`;
+                    systems.set(key, (systems.get(key) || 0) + 1);
+                });
+            }
+
+            list.innerHTML = Array.from(systems.keys()).map(name => `
+                <div class="node-chip">
+                    <div class="node-dot"></div>
+                    <span>${name}</span>
+                </div>
+            `).join('');
+        }
+
+        function handleMetric(metric) {
+            const tool = metric.tool_name;
+            const type = metric.metric_type;
+
+            if (!state.tools.has(tool)) {
+                state.tools.add(tool);
+                state.metrics[tool] = {};
+                state.toolKeys[tool] = new Set();
+                createTab(tool);
+            }
+
+            if (!state.metrics[tool][type]) {
+                state.metrics[tool][type] = { history: [] };
+            }
+
+            Object.keys(metric.values).forEach(k => state.toolKeys[tool].add(k));
+
+            const mData = state.metrics[tool][type];
+            mData.history.unshift(metric);
+            if (mData.history.length > 2000) mData.history.pop();
+        }
+
+        function createTab(toolName) {
+            const tabBar = document.getElementById('tab-bar');
+            const btn = document.createElement('button');
+            btn.className = 'tab';
+            btn.innerText = toolName.toUpperCase();
+            btn.dataset.tool = toolName;
+            btn.onclick = () => switchTab(toolName);
+            tabBar.appendChild(btn);
+
+            if (!state.activeTool) switchTab(toolName);
+        }
+
+        const eventSource = new EventSource('/events');
+        eventSource.onmessage = (e) => handleMetric(JSON.parse(e.data));
+        eventSource.onerror = () => {
+            document.getElementById('status-dot').className = 'status-dot disconnected';
+            document.getElementById('status-text').innerText = 'RECONNECTING...';
+        };
+        eventSource.onopen = () => {
+            document.getElementById('status-dot').className = 'status-dot';
+            document.getElementById('status-text').innerText = 'CONNECTED';
+        };
+
+        fetch('/api/history').then(r => r.json()).then(h => {
+            h.reverse().forEach(handleMetric);
+            aggregateAll();
+        });
+
+        setInterval(aggregateAll, 1000);
+    </script>
+</body>
+
+</html>

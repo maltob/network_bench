@@ -1,0 +1,13 @@
+# Network Benchmarking Suite Configuration
+
+# Central metrics server URL
+server_url = "http://localhost:3000"
+
+# Optional: Override the system name reported to the server
+# system_name = "custom-node-alpha"
+
+# Note: Individual tools can still override these settings via 
+# command-line arguments (e.g., --server-url http://new-server:3000)
+
+# Default run duration for benchmarking tools in seconds
+duration_secs = 300

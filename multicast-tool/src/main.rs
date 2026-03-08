@@ -143,10 +143,8 @@ async fn run_receiver(
 ) -> anyhow::Result<()> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     socket.set_reuse_address(true)?;
-    // set_reuse_port is available on Linux/Android/Unix but macOS socket2 version or target 
-    // might not expose it, and set_reuse_address is often sufficient for multicast there.
-    #[cfg(all(unix, not(target_os = "macos")))]
-    socket.set_reuse_port(true)?;
+    // set_reuse_address is generally sufficient for multicast on Windows, Linux, and macOS 
+    // to allow multiple listeners to bind to the same port.
 
     let bind_addr: SocketAddr = match group {
         SocketAddr::V4(v4) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), v4.port()),

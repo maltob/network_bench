@@ -74,11 +74,12 @@ Validates Connections Per Second (CPS) by heavily stress-testing TCP connection 
 Validates DNS reliability and speed against specific resolvers without caching bias. Uses standard udp/tcp resolution.
 - **Usage**: `./dns-bench 8.8.8.8 --qps 50 -D google.com,cloudflare.com`
 
-### 11. `pmtu-tool`
+### 11. `pmtu-tool` & `mtu-discovery`
 Discovers Path MTU and identifies silent blackholes by sweeping UDP packets with the Don't Fragment (DF) bit enabled.
 - **Usage**:
-  - Server: `./pmtu-tool server`
-  - Client: `./pmtu-tool 192.168.1.10`
+  - Server: `./mtu-discovery server`
+  - Client: `./mtu-discovery client --target 192.168.1.10 --perf-check`
+- **Performance Check**: The `--perf-check` flag runs a fragmentation validation test. **Note:** Throughput (Mbps) may appear *higher* for fragmented packets if the bottleneck is CPU syscall rate rather than physical bandwidth. However, fragmentation incurs a measurable latency penalty and risks complete packet loss (blackholing) on misconfigured networks.
 
 ### 12. `rrul-bench`
 Bufferbloat & AQM Tester. Simulates "latency under load" by simultaneously running a high-bandwidth TCP upload stream and measuring precise UDP latency dynamically to expose unmanaged router queues.

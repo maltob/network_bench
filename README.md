@@ -1,59 +1,97 @@
 # Network Bench
 
-A network benchmarking suite designed for real-time visualization and multi-protocol testing.
+A comprehensive network benchmarking suite designed for real-time visualization, multi-protocol testing, and deep-dive network validation.
 
 ## Features
 
-- **Multi-Protocol Throughput Testing**: Test performance using QUIC, HTTP, HTTPS, and raw TCP.
-- **Latency Testing**: Accurate RTT and jitter detection for network diagnostics.
-- **Multicast Testing**: High-throughput multicast performance and latency tracking.
+- **Multi-Protocol Throughput Testing**: Test performance using QUIC, HTTP, HTTPS, and raw TCP (`transfer-tool`, `tcp-bench`, `udp-bench`).
+- **Latency & Path Analysis**: Accurate RTT, jitter detection, and MTR-style hop-by-hop tracking (`latency-tool`, `path-tool`).
+- **Advanced Validation Validation**: Stress-test connection limits, validate QoS/DSCP markings, measure DNS reliability, and detect Path MTU blackholes.
+- **Suite-Wide Simplified CLI**: Automatically assumes client modes when target IPs are provided, speeding up testing workflows.
+- **Real-time Dashboard**: All tools automatically report telemetry to the `metrics-server` for live charting.
 - **Cross-Platform**: Built in Rust for Windows, Linux, and macOS.
 
-## Tools
+## Core Tools
 
 ### 1. `transfer-tool`
-High-speed throughput tester - good for resting TCP/HTTPS/QUIC throughput.
-- **Scenarios**: `default` (1GB), `jumbo` (10GB), `small` (1MB), and `mixture` (mostly 1MB, some 1GB, rarely a 10GB).
+High-speed throughput tester - great for testing TCP, HTTPS, and QUIC throughput.
 - **Burst Mode**: Use `--connect-each` to test connection setup overhead by forcing new connections for each download.
-- **Protocols**: `--proto <quic|http|https|tcp>`.
+- **Usage**:
+  - Server: `./transfer-tool server --proto https --listen 0.0.0.0:4433`
+  - Client: `./transfer-tool 192.168.1.10:4433 --proto https --scenario mixture`
 
-### 2. `sip-tool`
-VoIP simulation and latency tool.
-- **Signaling**: Full INVITE -> 200 OK -> ACK flow.
-- **Media**: 5-second RTP-like audio stream (20ms intervals).
-- **Metrics**: Tracks setup latency, media jitter, and packet loss.
+### 2. `tcp-bench`
+Measures TCP throughput and calculates Bandwidth Delay Product (BDP) in real-time.
+- **Usage**:
+  - Server: `./tcp-bench server`
+  - Client: `./tcp-bench 192.168.1.10`
 
-### 3. latency-tool
-Measures RTT latency between two systems as well as the jitter.
-- **Server**: Run `latency-tool server` to listen for echo requests.
-- **Client**: Run `latency-tool client --target <ip>` to measure performance.
+### 3. `udp-bench`
+Measures raw UDP throughput, loss, and jitter.
+- **Usage**:
+  - Server: `./udp-bench server`
+  - Client: `./udp-bench 192.168.1.10 --rate 100mbps`
 
-### 4. path-tool (MTR-style)
-Measures loss and latency for every hop in the network path.
-- **Usage**: Run `path-tool --target 8.8.8.8` (requires Admin/Root).
-- **Troubleshooting**: If you see 100% loss, use `--bind <local-ip>` to specify your outbound interface.
+### 4. `latency-tool`
+Measures basic UDP RTT latency between two systems as well as the jitter.
+- **Usage**:
+  - Server: `./latency-tool server`
+  - Client: `./latency-tool 192.168.1.10`
 
-### 5. multicast-tool
-Measures throughput over multicast. Please note that with no multicast clients, it will likely be line rate. 
+### 5. `path-tool`
+MTR-style tool that measures loss and latency for every hop in the network path (ICMP).
+- **Usage**: `./path-tool 8.8.8.8` (requires Admin/Root privileges)
 
-### 6. udp-bench
-Measures raw UDP throughput, loss, and jitter. Note that 100mbps even on loopback can cause loss.
-- **Server**: Run `udp-bench server --bind 0.0.0.0:9000`
-- **Client**: Run `udp-bench client --target <ip>:9000 --rate 100mbps`
+### 6. `multicast-tool`
+Measures throughput over multicast groups.
+- **Usage**:
+  - Receiver (Default): `./multicast-tool 224.0.0.251`
+  - Sender: `./multicast-tool sender 224.0.0.251`
 
-### 7. mtu-discovery
-Finds the path MTU using binary search and the DF flag.
-- **Server**: Run `mtu-discovery server --bind 0.0.0.0:9001`
-- **Client**: Run `mtu-discovery client --target <ip>:9001`
+### 7. `sip-tool`
+VoIP simulation tool. Evaluates SIP signaling (INVITE -> 200 OK) and 5-second RTP-like media streams.
+- **Usage**:
+  - Server: `./sip-tool server`
+  - Client: `./sip-tool 192.168.1.10`
 
-### 8. metrics-server 
-Centralized metrics collection hub and dashboard. It displays recent results for each tool in a dedicated tab.
+---
+
+## Validation Edge-Tools
+
+### 8. `qos-tool`
+Validates QoS enforcement by injecting UDP packets with specific DSCP (IP_TOS) markings.
+- **Usage**:
+  - Server: `./qos-tool server`
+  - Client: `./qos-tool 192.168.1.10 --dscp 46`
+
+### 9. `cps-bench`
+Validates Connections Per Second (CPS) by heavily stress-testing TCP connection setups. Crucial for NAT gateways and load balancers.
+- **Usage**:
+  - Server: `./cps-bench server`
+  - Client: `./cps-bench 192.168.1.10 --concurrency 500`
+
+### 10. `dns-bench`
+Validates DNS reliability and speed against specific resolvers without caching bias. Uses standard udp/tcp resolution.
+- **Usage**: `./dns-bench 8.8.8.8 --qps 50 -D google.com,cloudflare.com`
+
+### 11. `pmtu-tool`
+Discovers Path MTU and identifies silent blackholes by sweeping UDP packets with the Don't Fragment (DF) bit enabled.
+- **Usage**:
+  - Server: `./pmtu-tool server`
+  - Client: `./pmtu-tool 192.168.1.10`
+
+---
+
+## Centralized Reporting
+
+### 12. `metrics-server`
+Centralized metrics collection hub and dashboard. It dynamically generates charts for any of the above tools sending it data.
+- **Usage**: `./metrics-server`
 - **Dashboard**: Access via `http://localhost:3000/dashboard` in your browser.
-- **Database**: Stores all metrics in a local SQLite database.
 
 ## Configuration
 
-A unified `config.toml` can be used to set defaults for all tools:
+A unified `config.toml` can be used to set defaults for all tools without passing CLI flags:
 
 ```toml
 server_url = "http://127.0.0.1:3000"
@@ -63,55 +101,10 @@ interval_ms = 1000
 
 ## Building
 
-Requires Rust 1.75+.
+Requires Rust 1.70+.
 
 ```bash
-cargo build --release
+cargo build --release --workspace
 ```
 
 Binaries will be located in `target/release/`.
-
-## Quick Start
-
-### 1. Start the Metrics Infrastructure
-```bash
-# Start the server (default port 3000)
-./metrics-server
-```
-Access the dashboard at `http://localhost:3000/dashboard`.
-
-### 2. Run Latency Tests
-```bash
-# On Server Node:
-./latency-tool server --bind 0.0.0.0:8080
-
-# On Client Node:
-./latency-tool client --target <server-ip>:8080
-```
-
-### 3. Run SIP (VoIP) Simulation
-```bash
-# On Server Node:
-./sip-tool server --bind 0.0.0.0:5060
-
-# On Client Node:
-./sip-tool client --target <server-ip>:5060
-```
-
-### 4. Run Throughput Tests (Transfer Tool)
-```bash
-# Start an HTTPS Server:
-./transfer-tool server --proto https --listen 0.0.0.0:4433
-
-# Run a Mixture Scenario Client:
-./transfer-tool client --target <server-ip>:4433 --proto https --scenario mixture
-```
-
-### 5. Run Multicast Tests
-```bash
-# On Receiver Node:
-./multicast-tool receiver --group 239.0.0.1:5000
-
-# On Sender Node:
-./multicast-tool sender --group 239.0.0.1:5000
-```

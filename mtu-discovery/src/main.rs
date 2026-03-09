@@ -121,7 +121,7 @@ async fn probe_mtu(target: SocketAddr, size: usize) -> bool {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     {
         use std::os::unix::io::AsRawFd;
         let fd = socket.as_raw_fd();
@@ -130,6 +130,21 @@ async fn probe_mtu(target: SocketAddr, size: usize) -> bool {
             let res = libc::setsockopt(fd, libc::IPPROTO_IP, libc::IP_MTU_DISCOVER, &val as *const i32 as *const libc::c_void, 4);
             if res != 0 {
                 warn!("Failed to set IP_MTU_DISCOVER on Linux");
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::io::AsRawFd;
+        let fd = socket.as_raw_fd();
+        let val: i32 = 1;
+        // macOS IP_DONTFRAG = 28 (not exposed by libc crate)
+        const IP_DONTFRAG: i32 = 28;
+        unsafe {
+            let res = libc::setsockopt(fd, libc::IPPROTO_IP, IP_DONTFRAG, &val as *const i32 as *const libc::c_void, 4);
+            if res != 0 {
+                warn!("Failed to set IP_DONTFRAG on macOS");
             }
         }
     }

@@ -3,6 +3,7 @@ use common::{AppConfig, Metric, ReportingClient};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::{SocketAddr, UdpSocket as StdUdpSocket};
 use std::time::Duration;
+use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tracing::{info, warn};
 
@@ -116,7 +117,7 @@ async fn run_perf_check(
     let unfrag_size = pmtu_size;
     let frag_size = pmtu_size + 500; // Force fragmentation
 
-    let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await?;
+    let socket = Arc::new(tokio::net::UdpSocket::bind("0.0.0.0:0").await?);
     
     async fn ping_sweep(socket: &tokio::net::UdpSocket, target: SocketAddr, size: usize, count: usize) -> (usize, f64) {
         let mut recv_buf = vec![0u8; 65535];
@@ -141,19 +142,55 @@ async fn run_perf_check(
         (success, avg_rtt)
     }
 
+    async fn throughput_sweep(socket: Arc<tokio::net::UdpSocket>, target: SocketAddr, size: usize) -> f64 {
+        let payload = vec![0u8; size];
+        let duration = Duration::from_secs(1);
+        let start = std::time::Instant::now();
+        
+        let socket_tx = Arc::clone(&socket);
+        
+        let _tx_handle = tokio::spawn(async move {
+            while start.elapsed() < duration {
+                let _ = socket_tx.send_to(&payload, target).await;
+                tokio::task::yield_now().await;
+            }
+        });
+
+        let mut success = 0;
+        let mut recv_buf = vec![0u8; 1024]; 
+        while start.elapsed() < duration + Duration::from_millis(200) {
+            match tokio::time::timeout(Duration::from_millis(50), socket.recv_from(&mut recv_buf)).await {
+                Ok(Ok((len, _))) => {
+                    let resp = String::from_utf8_lossy(&recv_buf[..len]);
+                    if resp.starts_with("OK:") {
+                        success += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        let bytes_delivered = success * size; 
+        (bytes_delivered as f64 * 8.0) / 1_000_000.0
+    }
+
     let (unfrag_succ, unfrag_rtt) = ping_sweep(&socket, target, unfrag_size, 100).await;
-    info!("Unfragmented ({} bytes) -> Success: {}/100, Avg Latency: {:.2}ms", unfrag_size, unfrag_succ, unfrag_rtt);
+    let unfrag_tput = throughput_sweep(Arc::clone(&socket), target, unfrag_size).await;
+    info!("Unfragmented ({} bytes) -> Success: {}/100, Avg Latency: {:.2}ms, Tput: {:.2} Mbps", unfrag_size, unfrag_succ, unfrag_rtt, unfrag_tput);
 
     let (frag_succ, frag_rtt) = ping_sweep(&socket, target, frag_size, 100).await;
-    info!("Fragmented   ({} bytes) -> Success: {}/100, Avg Latency: {:.2}ms", frag_size, frag_succ, frag_rtt);
+    let frag_tput = throughput_sweep(Arc::clone(&socket), target, frag_size).await;
+    info!("Fragmented   ({} bytes) -> Success: {}/100, Avg Latency: {:.2}ms, Tput: {:.2} Mbps", frag_size, frag_succ, frag_rtt, frag_tput);
 
     let system_ip = common::get_local_ip(&target.ip().to_string());
     
     let metric = Metric::new("mtu-discovery", "fragmentation_perf")
         .with_value("unfrag_latency_ms", unfrag_rtt)
         .with_value("unfrag_success_pct", (unfrag_succ as f64 / 100.0) * 100.0)
+        .with_value("unfrag_tput_mbps", unfrag_tput)
         .with_value("frag_latency_ms", frag_rtt)
         .with_value("frag_success_pct", (frag_succ as f64 / 100.0) * 100.0)
+        .with_value("frag_tput_mbps", frag_tput)
         .with_tag("target", &target.to_string())
         .with_tag("system_ip", &system_ip)
         .with_tag("target_ip", &target.ip().to_string());

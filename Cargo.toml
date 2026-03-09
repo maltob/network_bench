@@ -9,7 +9,7 @@ members = [
     "udp-bench",
     "mtu-discovery",
     "path-tool",
-    "tcp-bench", "qos-tool", "cps-bench", "dns-bench", "pmtu-tool",
+    "tcp-bench", "qos-tool", "cps-bench", "dns-bench", "pmtu-tool", "rrul-bench",
 ]
 resolver = "2"
 

@@ -80,11 +80,17 @@ Discovers Path MTU and identifies silent blackholes by sweeping UDP packets with
   - Server: `./pmtu-tool server`
   - Client: `./pmtu-tool 192.168.1.10`
 
+### 12. `rrul-bench`
+Bufferbloat & AQM Tester. Simulates "latency under load" by simultaneously running a high-bandwidth TCP upload stream and measuring precise UDP latency dynamically to expose unmanaged router queues.
+- **Usage**:
+  - Server: `./rrul-bench server`
+  - Client: `./rrul-bench 192.168.1.10 --concurrency 4`
+
 ---
 
 ## Centralized Reporting
 
-### 12. `metrics-server`
+### 13. `metrics-server`
 Centralized metrics collection hub and dashboard. It dynamically generates charts for any of the above tools sending it data.
 - **Usage**: `./metrics-server`
 - **Dashboard**: Access via `http://localhost:3000/dashboard` in your browser.

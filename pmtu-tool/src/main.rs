@@ -143,7 +143,7 @@ async fn run_client(
                     libc::IPPROTO_IP,
                     libc::IP_MTU_DISCOVER,
                     &optval as *const _ as *const libc::c_void,
-                    std::mem::size_of_val(&optval) as libc::c_socklen_t,
+                    std::mem::size_of_val(&optval) as libc::socklen_t,
                 );
             }
         }
@@ -161,7 +161,7 @@ async fn run_client(
                     libc::IPPROTO_IP,
                     IP_DONTFRAG,
                     &optval as *const _ as *const libc::c_void,
-                    std::mem::size_of_val(&optval) as libc::c_socklen_t,
+                    std::mem::size_of_val(&optval) as libc::socklen_t,
                 );
             }
         }

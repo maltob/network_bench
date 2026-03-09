@@ -83,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
 async fn run_server(bind: &str) -> anyhow::Result<()> {
     let socket = tokio::net::UdpSocket::bind(bind).await?;
     info!("PMTU Echo Server listening on {}", bind);
-    
+
     let mut buf = vec![0u8; 65535];
     loop {
         match socket.recv_from(&mut buf).await {
@@ -103,22 +103,28 @@ async fn run_client(
     reporter: ReportingClient,
 ) -> anyhow::Result<()> {
     let target_addr: SocketAddr = target.parse()?;
-    
-    let domain = if target_addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+
+    let domain = if target_addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
     let sock2 = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
-    
+
     // Attempt to set Don't Fragment bit (DF)
     if target_addr.is_ipv4() {
         // IP_DONTFRAG (Windows) / IP_MTU_DISCOVER (Linux via libc) is somewhat platform specific.
-        // We'll use cross-platform where possible, but for true portability on sockets in Rust, 
+        // We'll use cross-platform where possible, but for true portability on sockets in Rust,
         // socket2 provides basic support but sometimes requires OS level bindings.
         // As a simple approximation, socket2 doesn't expose a unified `set_dont_fragment`.
         // We will do our best with what socket2 offers or rely on the OS throwing Message Too Long errors.
-        
+
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::io::AsRawSocket;
-            use windows_sys::Win32::Networking::WinSock::{setsockopt, IPPROTO_IP, IP_DONTFRAGMENT};
+            use windows_sys::Win32::Networking::WinSock::{
+                setsockopt, IPPROTO_IP, IP_DONTFRAGMENT,
+            };
             let raw_sock = sock2.as_raw_socket() as usize;
             unsafe {
                 let optval: i32 = 1;
@@ -131,13 +137,13 @@ async fn run_client(
                 );
             }
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             use std::os::unix::io::AsRawFd;
             let raw_fd = sock2.as_raw_fd();
             unsafe {
-                let optval: libc::c_int = libc::IP_PMTUDISC_DO; 
+                let optval: libc::c_int = libc::IP_PMTUDISC_DO;
                 libc::setsockopt(
                     raw_fd,
                     libc::IPPROTO_IP,
@@ -155,7 +161,7 @@ async fn run_client(
             // macOS IP_DONTFRAG = 28 (not exposed by libc crate)
             const IP_DONTFRAG: libc::c_int = 28;
             unsafe {
-                let optval: libc::c_int = 1; 
+                let optval: libc::c_int = 1;
                 libc::setsockopt(
                     raw_fd,
                     libc::IPPROTO_IP,
@@ -170,25 +176,33 @@ async fn run_client(
     sock2.bind(&"0.0.0.0:0".parse::<SocketAddr>()?.into())?;
     sock2.set_nonblocking(true)?;
     let socket = tokio::net::UdpSocket::from_std(sock2.into())?;
-    
-    info!("Starting PMTU Sweep towards {} ({} to {} bytes, step {})", target, min_size, max_size, step);
+
+    info!(
+        "Starting PMTU Sweep towards {} ({} to {} bytes, step {})",
+        target, min_size, max_size, step
+    );
 
     let mut current_size = min_size;
     let mut last_successful_size = 0;
     let mut recv_buf = vec![0u8; 65535];
-    
+
     let system_ip = common::get_local_ip(&target_addr.ip().to_string());
 
     while current_size <= max_size {
         let payload = vec![0u8; current_size];
-        
+
         // Send packet
         let send_res = socket.send_to(&payload, target_addr).await;
         match send_res {
             Ok(_) => {
                 // Wait for echo to confirm it didn't get blackholed downstream
                 let mut success = false;
-                match tokio::time::timeout(Duration::from_millis(500), socket.recv_from(&mut recv_buf)).await {
+                match tokio::time::timeout(
+                    Duration::from_millis(500),
+                    socket.recv_from(&mut recv_buf),
+                )
+                .await
+                {
                     Ok(Ok((len, _))) => {
                         if len == current_size {
                             success = true;
@@ -206,7 +220,11 @@ async fn run_client(
                 }
             }
             // EMSGSIZE or WSAEMSGSIZE
-            Err(e) if e.raw_os_error() == Some(90) || e.raw_os_error() == Some(10040) || e.to_string().contains("too long") => {
+            Err(e)
+                if e.raw_os_error() == Some(90)
+                    || e.raw_os_error() == Some(10040)
+                    || e.to_string().contains("too long") =>
+            {
                 info!("Size {} bytes: TOO LARGE (OS Error)", current_size);
                 break;
             }
@@ -215,12 +233,16 @@ async fn run_client(
                 break;
             }
         }
-        
+
         current_size += step;
     }
 
     // IP header (20 bytes) + UDP header (8 bytes) = 28 bytes overhead
-    let presumed_pmtu = if last_successful_size > 0 { last_successful_size + 28 } else { 0 };
+    let presumed_pmtu = if last_successful_size > 0 {
+        last_successful_size + 28
+    } else {
+        0
+    };
     info!("===================================");
     info!("Estimated Path MTU: {} bytes", presumed_pmtu);
     info!("===================================");
@@ -230,7 +252,7 @@ async fn run_client(
         .with_tag("target", &target_addr.to_string())
         .with_tag("system_ip", &system_ip)
         .with_tag("target_ip", &target_addr.ip().to_string());
-    
+
     let _ = reporter.report(metric).await;
 
     Ok(())

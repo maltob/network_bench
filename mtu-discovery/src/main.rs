@@ -32,6 +32,9 @@ enum Commands {
         target: String,
         #[arg(short, long, default_value_t = 100)]
         retries: u32,
+        /// Optional: Check performance impact of fragmentation after finding PMTU
+        #[arg(long)]
+        perf_check: bool,
     },
 }
 
@@ -48,8 +51,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Server { bind } => {
             run_server(&bind).await?;
         }
-        Commands::Client { target, retries } => {
-            run_client(&target, retries, reporter).await?;
+        Commands::Client { target, retries, perf_check } => {
+            run_client(&target, retries, perf_check, reporter).await?;
         }
     }
 
@@ -68,7 +71,7 @@ async fn run_server(bind: &str) -> anyhow::Result<()> {
     }
 }
 
-async fn run_client(target: &str, _retries: u32, reporter: ReportingClient) -> anyhow::Result<()> {
+async fn run_client(target: &str, _retries: u32, perf_check: bool, reporter: ReportingClient) -> anyhow::Result<()> {
     let target_addr: SocketAddr = target.parse()?;
     
     info!("Starting MTU Discovery to {}", target);
@@ -95,6 +98,66 @@ async fn run_client(target: &str, _retries: u32, reporter: ReportingClient) -> a
         .with_value("mtu_bytes", best as f64)
         .with_tag("target", target);
     
+    let _ = reporter.report(metric).await;
+
+    if perf_check && best > 64 {
+        run_perf_check(target_addr, best, reporter).await?;
+    }
+
+    Ok(())
+}
+
+async fn run_perf_check(
+    target: SocketAddr,
+    pmtu_size: usize,
+    reporter: ReportingClient,
+) -> anyhow::Result<()> {
+    info!("--- Fragmentation Performance Check ---");
+    let unfrag_size = pmtu_size;
+    let frag_size = pmtu_size + 500; // Force fragmentation
+
+    let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await?;
+    
+    async fn ping_sweep(socket: &tokio::net::UdpSocket, target: SocketAddr, size: usize, count: usize) -> (usize, f64) {
+        let mut recv_buf = vec![0u8; 65535];
+        let mut success = 0;
+        let mut total_rtt = 0.0;
+        let payload = vec![0u8; size];
+
+        for _ in 0..count {
+            let start = std::time::Instant::now();
+            if socket.send_to(&payload, target).await.is_ok() {
+                if let Ok(Ok((len, _))) = tokio::time::timeout(Duration::from_millis(200), socket.recv_from(&mut recv_buf)).await {
+                    let resp = String::from_utf8_lossy(&recv_buf[..len]);
+                    if resp.starts_with("OK:") {
+                        success += 1;
+                        total_rtt += start.elapsed().as_secs_f64() * 1000.0;
+                    }
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let avg_rtt = if success > 0 { total_rtt / success as f64 } else { 0.0 };
+        (success, avg_rtt)
+    }
+
+    let (unfrag_succ, unfrag_rtt) = ping_sweep(&socket, target, unfrag_size, 100).await;
+    info!("Unfragmented ({} bytes) -> Success: {}/100, Avg Latency: {:.2}ms", unfrag_size, unfrag_succ, unfrag_rtt);
+
+    let (frag_succ, frag_rtt) = ping_sweep(&socket, target, frag_size, 100).await;
+    info!("Fragmented   ({} bytes) -> Success: {}/100, Avg Latency: {:.2}ms", frag_size, frag_succ, frag_rtt);
+
+    let system_ip = common::get_local_ip(&target.ip().to_string());
+    
+    let metric = Metric::new("mtu-discovery", "fragmentation_perf")
+        .with_value("unfrag_latency_ms", unfrag_rtt)
+        .with_value("unfrag_success_pct", (unfrag_succ as f64 / 100.0) * 100.0)
+        .with_value("frag_latency_ms", frag_rtt)
+        .with_value("frag_success_pct", (frag_succ as f64 / 100.0) * 100.0)
+        .with_tag("target", &target.to_string())
+        .with_tag("system_ip", &system_ip)
+        .with_tag("target_ip", &target.ip().to_string());
+        
     let _ = reporter.report(metric).await;
 
     Ok(())

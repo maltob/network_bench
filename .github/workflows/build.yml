@@ -34,3 +34,27 @@ jobs:
 
     - name: Run checks
       run: cargo check --release
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: network_bench-${{ matrix.os }}
+        path: |
+          target/release/metrics-server*
+          target/release/latency-tool*
+          target/release/path-tool*
+          target/release/transfer-tool*
+          target/release/multicast-tool*
+          target/release/sip-tool*
+          target/release/udp-bench*
+          target/release/tcp-bench*
+          target/release/qos-tool*
+          target/release/cps-bench*
+          target/release/dns-bench*
+          target/release/pmtu-tool*
+          target/release/mtu-discovery*
+          target/release/rrul-bench*
+          !target/release/*.d
+          !target/release/*.rlib
+          !target/release/*.pdb
+        if-no-files-found: warn

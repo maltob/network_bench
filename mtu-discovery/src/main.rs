@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use common::{AppConfig, Metric, ReportingClient};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::{SocketAddr, UdpSocket as StdUdpSocket};
@@ -10,33 +10,30 @@ use tracing::{info, warn};
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    #[command(subcommand)]
-    command: Commands,
+    /// Mode ('server', 'client') or a target IP/hostname (assumes client)
+    #[arg(index = 1)]
+    mode_or_target: Option<String>,
+
+    /// Target IP/hostname when 'client' is explicitly specified
+    #[arg(index = 2)]
+    explicit_target: Option<String>,
+
+    /// Bind address for the server (when running as server)
+    #[arg(short, long, default_value = "0.0.0.0:9001")]
+    bind: String,
+
+    #[arg(short, long, default_value_t = 100)]
+    retries: u32,
+
+    /// Optional: Check performance impact of fragmentation after finding PMTU
+    #[arg(long)]
+    perf_check: bool,
 
     #[arg(short, long)]
     server_url: Option<String>,
 
     #[arg(short, long)]
     config: Option<String>,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Start an MTU discovery server (echo)
-    Server {
-        #[arg(short, long, default_value = "0.0.0.0:9001")]
-        bind: String,
-    },
-    /// Start an MTU discovery client
-    Client {
-        #[arg(short, long)]
-        target: String,
-        #[arg(short, long, default_value_t = 100)]
-        retries: u32,
-        /// Optional: Check performance impact of fragmentation after finding PMTU
-        #[arg(long)]
-        perf_check: bool,
-    },
 }
 
 #[tokio::main]
@@ -48,13 +45,33 @@ async fn main() -> anyhow::Result<()> {
     let server_url = cli.server_url.unwrap_or(config.server_url);
     let reporter = ReportingClient::new(server_url);
 
-    match cli.command {
-        Commands::Server { bind } => {
-            run_server(&bind).await?;
-        }
-        Commands::Client { target, retries, perf_check } => {
-            run_client(&target, retries, perf_check, reporter).await?;
-        }
+    let mode_or_target = cli.mode_or_target.unwrap_or_else(|| {
+        eprintln!("Usage: mtu-discovery.exe [server|client] [TARGET]\n");
+        eprintln!("Examples:");
+        eprintln!("  mtu-discovery.exe server                             # Start echo server on 0.0.0.0:9001");
+        eprintln!("  mtu-discovery.exe 192.168.1.10                       # Sweep PMTU to 192.168.1.10:9001");
+        std::process::exit(1);
+    });
+
+    if mode_or_target.eq_ignore_ascii_case("server") {
+        run_server(&cli.bind).await?;
+    } else {
+        let raw_target = if mode_or_target.eq_ignore_ascii_case("client") {
+            cli.explicit_target.unwrap_or_else(|| {
+                eprintln!("Error: Target must be provided when using 'client' mode.");
+                std::process::exit(1);
+            })
+        } else {
+            mode_or_target
+        };
+
+        let target = if raw_target.contains(':') {
+            raw_target
+        } else {
+            format!("{}:9001", raw_target)
+        };
+
+        run_client(&target, cli.retries, cli.perf_check, reporter).await?;
     }
 
     Ok(())

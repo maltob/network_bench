@@ -28,20 +28,25 @@ Measures RTT latency between two systems as well as the jitter.
 - **Server**: Run `latency-tool server` to listen for echo requests.
 - **Client**: Run `latency-tool client --target <ip>` to measure performance.
 
-### 4. multicast-tool
+### 4. path-tool (MTR-style)
+Measures loss and latency for every hop in the network path.
+- **Usage**: Run `path-tool --target 8.8.8.8` (requires Admin/Root).
+- **Troubleshooting**: If you see 100% loss, use `--bind <local-ip>` to specify your outbound interface.
+
+### 5. multicast-tool
 Measures throughput over multicast. Please note that with no multicast clients, it will likely be line rate. 
 
-### 5. udp-bench
-Measures raw UDP throughput, loss, and jitter.
+### 6. udp-bench
+Measures raw UDP throughput, loss, and jitter. Note that 100mbps even on loopback can cause loss.
 - **Server**: Run `udp-bench server --bind 0.0.0.0:9000`
 - **Client**: Run `udp-bench client --target <ip>:9000 --rate 100mbps`
 
-### 6. mtu-discovery
+### 7. mtu-discovery
 Finds the path MTU using binary search and the DF flag.
 - **Server**: Run `mtu-discovery server --bind 0.0.0.0:9001`
 - **Client**: Run `mtu-discovery client --target <ip>:9001`
 
-### 7. metrics-server 
+### 8. metrics-server 
 Centralized metrics collection hub and dashboard. It displays recent results for each tool in a dedicated tab.
 - **Dashboard**: Access via `http://localhost:3000/dashboard` in your browser.
 - **Database**: Stores all metrics in a local SQLite database.

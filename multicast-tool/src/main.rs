@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use common::{AppConfig, Metric, ReportingClient};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -6,11 +6,32 @@ use std::time::{Duration, Instant};
 use tokio::time::interval;
 use tracing::{error, info};
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    #[command(subcommand)]
-    command: Commands,
+    /// Mode ('sender', 'receiver') or a multicast group IP (assumes receiver)
+    #[arg(index = 1)]
+    mode_or_group: Option<String>,
+
+    /// Multicast group IP when 'sender' or 'receiver' is explicitly specified
+    #[arg(index = 2)]
+    explicit_group: Option<String>,
+
+    /// Packets per second (when running as sender)
+    #[arg(short, long, default_value_t = 1000)]
+    pps: u64,
+
+    /// Size of UDP payload in bytes (when running as sender)
+    #[arg(short, long, default_value_t = 1024)]
+    size: usize,
+
+    /// Interface IP to bind to (when running as receiver)
+    #[arg(short, long)]
+    interface: Option<Ipv4Addr>,
+
+    /// Duration of the test in seconds
+    #[arg(short, long)]
+    duration: Option<u64>,
 
     #[arg(short, long)]
     server_url: Option<String>,
@@ -19,29 +40,8 @@ struct Cli {
     config: Option<String>,
 }
 
-#[derive(Subcommand)]
-enum Commands {
-    /// Send multicast packets
-    Sender {
-        #[arg(short, long)]
-        group: SocketAddr,
-        #[arg(short, long, default_value_t = 1000)]
-        pps: u64,
-        #[arg(short, long, default_value_t = 1024)]
-        size: usize,
-        #[arg(short, long)]
-        duration: Option<u64>,
-    },
-    /// Receive multicast packets
-    Receiver {
-        #[arg(short, long)]
-        group: SocketAddr,
-        #[arg(short, long)]
-        interface: Option<Ipv4Addr>,
-        #[arg(short, long)]
-        duration: Option<u64>,
-    },
-}
+// #[derive(Subcommand)]
+// enum Commands { ... } removed
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -53,24 +53,48 @@ async fn main() -> anyhow::Result<()> {
 
     let reporter = ReportingClient::new(server_url);
 
-    match cli.command {
-        Commands::Sender {
-            group,
-            pps,
-            size,
-            duration,
-        } => {
-            let run_duration = duration.unwrap_or(config.duration_secs);
-            run_sender(group, pps, size, run_duration, reporter).await?;
-        }
-        Commands::Receiver {
-            group,
-            interface,
-            duration,
-        } => {
-            let run_duration = duration.unwrap_or(config.duration_secs);
-            run_receiver(group, interface, run_duration, reporter).await?;
-        }
+    let mode_or_group = cli.mode_or_group.unwrap_or_else(|| {
+        eprintln!("Usage: multicast-tool.exe [sender|receiver] [GROUP]\n");
+        eprintln!("Examples:");
+        eprintln!("  multicast-tool.exe 224.0.0.251                          # Start receiver for 224.0.0.251:9000");
+        eprintln!("  multicast-tool.exe receiver 224.0.0.251                 # Explicit receiver");
+        eprintln!("  multicast-tool.exe sender 224.0.0.251                   # Start sender to 224.0.0.251:9000");
+        eprintln!("  multicast-tool.exe sender 224.0.0.251:8000 --pps 500    # Sender on custom port and rate");
+        std::process::exit(1);
+    });
+
+    let (is_sender, raw_group) = if mode_or_group.eq_ignore_ascii_case("sender") {
+        (true, cli.explicit_group.unwrap_or_else(|| {
+            eprintln!("Error: Multicast group must be provided when using 'sender' mode.");
+            std::process::exit(1);
+        }))
+    } else if mode_or_group.eq_ignore_ascii_case("receiver") {
+        (false, cli.explicit_group.unwrap_or_else(|| {
+            eprintln!("Error: Multicast group must be provided when using 'receiver' mode.");
+            std::process::exit(1);
+        }))
+    } else {
+        // Default to receiver if just an IP is provided
+        (false, mode_or_group)
+    };
+
+    let group_str = if raw_group.contains(':') {
+        raw_group
+    } else {
+        format!("{}:9000", raw_group)
+    };
+
+    let group: SocketAddr = group_str.parse().unwrap_or_else(|_| {
+        eprintln!("Error: Invalid multicast group address '{}'", group_str);
+        std::process::exit(1);
+    });
+
+    let run_duration = cli.duration.unwrap_or(config.duration_secs);
+
+    if is_sender {
+        run_sender(group, cli.pps, cli.size, run_duration, reporter).await?;
+    } else {
+        run_receiver(group, cli.interface, run_duration, reporter).await?;
     }
 
     Ok(())

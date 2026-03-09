@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use common::{AppConfig, Metric, ReportingClient};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -6,11 +6,32 @@ use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tracing::{info, warn};
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    #[command(subcommand)]
-    command: Commands,
+    /// Mode ('server', 'client') or a target IP/hostname (assumes client)
+    #[arg(index = 1)]
+    mode_or_target: Option<String>,
+
+    /// Target IP/hostname when 'client' is explicitly specified
+    #[arg(index = 2)]
+    explicit_target: Option<String>,
+
+    /// Bind address for the server (when running as server)
+    #[arg(short, long, default_value = "0.0.0.0:9000")]
+    bind: String,
+
+    /// Target bandwidth rate (e.g., 10mbps, 1gbps, 500kbps)
+    #[arg(short, long, default_value = "10mbps")]
+    rate: String,
+
+    /// Size of UDP payload in bytes
+    #[arg(short, long, default_value_t = 1400)]
+    packet_size: usize,
+
+    /// Duration of the test in seconds (when running as client)
+    #[arg(short, long)]
+    duration: Option<u64>,
 
     #[arg(short, long)]
     server_url: Option<String>,
@@ -19,25 +40,8 @@ struct Cli {
     config: Option<String>,
 }
 
-#[derive(Subcommand)]
-enum Commands {
-    /// Start a UDP benchmark server
-    Server {
-        #[arg(short, long, default_value = "0.0.0.0:9000")]
-        bind: String,
-    },
-    /// Start a UDP benchmark client
-    Client {
-        #[arg(short, long)]
-        target: String,
-        #[arg(short, long, default_value = "10mbps")]
-        rate: String,
-        #[arg(short, long, default_value_t = 1400)]
-        packet_size: usize,
-        #[arg(short, long)]
-        duration: Option<u64>,
-    },
-}
+// #[derive(Subcommand)]
+// enum Commands { ... } removed
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -48,19 +52,36 @@ async fn main() -> anyhow::Result<()> {
     let server_url = cli.server_url.unwrap_or(config.server_url);
     let reporter = ReportingClient::new(server_url);
 
-    match cli.command {
-        Commands::Server { bind } => {
-            run_server(&bind, reporter).await?;
-        }
-        Commands::Client {
-            target,
-            rate,
-            packet_size,
-            duration,
-        } => {
-            let run_duration = duration.unwrap_or(config.duration_secs);
-            run_client(&target, &rate, packet_size, run_duration).await?;
-        }
+    let mode_or_target = cli.mode_or_target.unwrap_or_else(|| {
+        eprintln!("Usage: udp-bench.exe [server|client] [TARGET]\n");
+        eprintln!("Examples:");
+        eprintln!("  udp-bench.exe server                            # Start server on 0.0.0.0:9000");
+        eprintln!("  udp-bench.exe 192.168.1.10                      # Start client to 192.168.1.10:9000 at 10mbps");
+        eprintln!("  udp-bench.exe client 192.168.1.10               # Explicit client to 192.168.1.10:9000");
+        eprintln!("  udp-bench.exe 192.168.1.10:8000 -r 1gbps        # Target specific port at 1 Gbps");
+        std::process::exit(1);
+    });
+
+    if mode_or_target.eq_ignore_ascii_case("server") {
+        run_server(&cli.bind, reporter).await?;
+    } else {
+        let raw_target = if mode_or_target.eq_ignore_ascii_case("client") {
+            cli.explicit_target.unwrap_or_else(|| {
+                eprintln!("Error: Target must be provided when using 'client' mode.");
+                std::process::exit(1);
+            })
+        } else {
+            mode_or_target
+        };
+
+        let target = if raw_target.contains(':') {
+            raw_target
+        } else {
+            format!("{}:9000", raw_target)
+        };
+
+        let run_duration = cli.duration.unwrap_or(config.duration_secs);
+        run_client(&target, &cli.rate, cli.packet_size, run_duration).await?;
     }
 
     Ok(())

@@ -1,5 +1,5 @@
 use axum::{extract::Path, routing::get, Router};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, ValueEnum};
 use common::{AppConfig, Metric, ReportingClient};
 use futures_util::StreamExt;
 use quinn::{ClientConfig, Endpoint, ServerConfig};
@@ -19,8 +19,41 @@ use tracing::{error, info};
                   Defaults for many flags can be specified in a 'config.toml' file."
 )]
 struct Cli {
-    #[command(subcommand)]
-    command: Commands,
+    /// Mode ('server', 'client') or a target IP/hostname (assumes client)
+    #[arg(index = 1)]
+    mode_or_target: Option<String>,
+
+    /// Target IP/hostname when 'client' is explicitly specified
+    #[arg(index = 2)]
+    explicit_target: Option<String>,
+
+    /// Address to listen on (e.g., 0.0.0.0:4433).
+    #[arg(short, long, default_value = "0.0.0.0:4433")]
+    listen: SocketAddr,
+
+    /// Protocol for the transfer (quic, http, https, tcp).
+    #[arg(short, long, default_value = "quic")]
+    proto: Protocol,
+
+    /// Explicit size of data to download (e.g., 1048576 for 1MB).
+    #[arg(short, long)]
+    size: Option<u64>,
+
+    /// Predefined transfer scenario determining file size distribution.
+    #[arg(short = 'S', long, default_value = "default")]
+    scenario: Scenario,
+
+    /// Number of parallel streams/connections to open.
+    #[arg(short, long, default_value_t = 1)]
+    parallel: u32,
+
+    /// Total time to run the client loop in seconds.
+    #[arg(short, long)]
+    duration: Option<u64>,
+
+    /// If set, a fresh connection is initiated for every transfer.
+    #[arg(long)]
+    connect_each: bool,
 
     /// URL of the metrics server for real-time dashboard reporting.
     /// Overrides 'server_url' in config.toml.
@@ -52,47 +85,8 @@ enum Scenario {
     Mixture,
 }
 
-#[derive(Subcommand)]
-enum Commands {
-    /// Start a server to serve dummy data for throughput testing.
-    /// Supports QUIC, HTTP, HTTPS, and raw TCP.
-    Server {
-        /// Address to listen on (e.g., 0.0.0.0:4433).
-        #[arg(short, long, default_value = "0.0.0.0:4433")]
-        listen: SocketAddr,
-        /// Protocol for the server stream.
-        #[arg(short, long, default_value = "quic")]
-        proto: Protocol,
-    },
-    /// Start a client to download dummy data and measure performance.
-    Client {
-        /// Target server address (IP:PORT).
-        #[arg(short, long)]
-        target: SocketAddr,
-        /// Protocol for the transfer (quic, http, https, tcp).
-        #[arg(short, long, default_value = "quic")]
-        proto: Protocol,
-        /// Explicit size of data to download (e.g., 1048576 for 1MB).
-        /// Overrides the '--scenario' setting if provided.
-        #[arg(short, long)]
-        size: Option<u64>,
-        /// Predefined transfer scenario determining file size distribution.
-        /// 'mixture' uses a probabilistic distribution: 98.9% 1MB, 1% 1GB, 0.1% 10GB.
-        #[arg(short = 'S', long, default_value = "default")]
-        scenario: Scenario,
-        /// Number of parallel streams/connections to open.
-        #[arg(short, long, default_value_t = 1)]
-        parallel: u32,
-        /// Total time to run the client loop in seconds.
-        /// Overrides 'duration_secs' in config.toml.
-        #[arg(short, long)]
-        duration: Option<u64>,
-        /// If set, a fresh connection is initiated for every transfer.
-        /// Useful for testing connection setup overhead in 'small' or 'mixture' scenarios.
-        #[arg(long)]
-        connect_each: bool,
-    },
-}
+// #[derive(Subcommand)]
+// enum Commands { ... } removed
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -107,66 +101,58 @@ async fn main() -> anyhow::Result<()> {
 
     let reporter = ReportingClient::new(server_url);
 
-    match cli.command {
-        Commands::Server { listen, proto } => match proto {
-            Protocol::Quic => run_quic_server(listen).await?,
-            Protocol::Http => run_http_server(listen, false).await?,
-            Protocol::Https => run_http_server(listen, true).await?,
-            Protocol::Tcp => run_tcp_server(listen).await?,
-        },
-        Commands::Client {
-            target,
-            proto,
-            size,
-            scenario,
-            parallel,
-            duration,
-            connect_each,
-        } => {
-            let run_duration = duration.unwrap_or(config.duration_secs);
-            match proto {
-                Protocol::Quic => {
-                    run_quic_client(target, size, scenario, parallel, run_duration, reporter)
-                        .await?
-                }
-                Protocol::Http => {
-                    run_http_client(
-                        target,
-                        size,
-                        scenario,
-                        parallel,
-                        run_duration,
-                        reporter,
-                        false,
-                        connect_each,
-                    )
-                    .await?
-                }
-                Protocol::Https => {
-                    run_http_client(
-                        target,
-                        size,
-                        scenario,
-                        parallel,
-                        run_duration,
-                        reporter,
-                        true,
-                        connect_each,
-                    )
-                    .await?
-                }
-                Protocol::Tcp => {
-                    run_tcp_client(
-                        target,
-                        size,
-                        scenario,
-                        parallel,
-                        run_duration,
-                        reporter,
-                        connect_each,
-                    )
-                    .await?
-                }
+    let mode_or_target = cli.mode_or_target.unwrap_or_else(|| {
+        eprintln!("Usage: transfer-tool.exe [server|client] [TARGET]\n");
+        eprintln!("Examples:");
+        eprintln!("  transfer-tool.exe server                             # Start server on 0.0.0.0:4433");
+        eprintln!("  transfer-tool.exe 192.168.1.10                       # Start client to 192.168.1.10:4433");
+        eprintln!("  transfer-tool.exe client 192.168.1.10                # Explicit client to 192.168.1.10:4433");
+        eprintln!("  transfer-tool.exe 192.168.1.10:8443 --proto https    # HTTPS client on custom port");
+        std::process::exit(1);
+    });
+
+    if mode_or_target.eq_ignore_ascii_case("server") {
+        match cli.proto {
+            Protocol::Quic => run_quic_server(cli.listen).await?,
+            Protocol::Http => run_http_server(cli.listen, false).await?,
+            Protocol::Https => run_http_server(cli.listen, true).await?,
+            Protocol::Tcp => run_tcp_server(cli.listen).await?,
+        }
+    } else {
+        let raw_target = if mode_or_target.eq_ignore_ascii_case("client") {
+            cli.explicit_target.unwrap_or_else(|| {
+                eprintln!("Error: Target must be provided when using 'client' mode.");
+                std::process::exit(1);
+            })
+        } else {
+            mode_or_target
+        };
+
+        let target_str = if raw_target.contains(':') {
+            raw_target
+        } else {
+            format!("{}:4433", raw_target)
+        };
+
+        let target: SocketAddr = target_str.parse().unwrap_or_else(|_| {
+            eprintln!("Error: Invalid target address '{}'", target_str);
+            std::process::exit(1);
+        });
+
+        let run_duration = cli.duration.unwrap_or(config.duration_secs);
+
+        match cli.proto {
+            Protocol::Quic => {
+                run_quic_client(target, cli.size, cli.scenario, cli.parallel, run_duration, reporter).await?
+            }
+            Protocol::Http => {
+                run_http_client(target, cli.size, cli.scenario, cli.parallel, run_duration, reporter, false, cli.connect_each).await?
+            }
+            Protocol::Https => {
+                run_http_client(target, cli.size, cli.scenario, cli.parallel, run_duration, reporter, true, cli.connect_each).await?
+            }
+            Protocol::Tcp => {
+                run_tcp_client(target, cli.size, cli.scenario, cli.parallel, run_duration, reporter, cli.connect_each).await?
             }
         }
     }

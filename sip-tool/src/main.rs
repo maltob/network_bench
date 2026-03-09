@@ -1,14 +1,35 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use common::{AppConfig, Metric, ReportingClient};
 use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tracing::{error, info};
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    #[command(subcommand)]
-    command: Commands,
+    /// Mode ('server', 'client') or a target IP/hostname (assumes client)
+    #[arg(index = 1)]
+    mode_or_target: Option<String>,
+
+    /// Target IP/hostname when 'client' is explicitly specified
+    #[arg(index = 2)]
+    explicit_target: Option<String>,
+
+    /// Bind address for the server (when running as server)
+    #[arg(short, long, default_value = "0.0.0.0:5060")]
+    bind: String,
+
+    /// Number of calls to simulate (when running as client)
+    #[arg(short, long)]
+    count: Option<u64>,
+
+    /// Interval between call starts in milliseconds (when running as client)
+    #[arg(short, long, default_value_t = 1000)]
+    interval_ms: u64,
+
+    /// Duration of the test in seconds (when running as client)
+    #[arg(short, long)]
+    duration: Option<u64>,
 
     #[arg(short, long)]
     server_url: Option<String>,
@@ -17,25 +38,8 @@ struct Cli {
     config: Option<String>,
 }
 
-#[derive(Subcommand)]
-enum Commands {
-    /// Start a SIP echo server
-    Server {
-        #[arg(short, long, default_value = "0.0.0.0:5060")]
-        bind: String,
-    },
-    /// Start a SIP latency client
-    Client {
-        #[arg(short, long)]
-        target: String,
-        #[arg(short, long)]
-        count: Option<u64>,
-        #[arg(short, long, default_value_t = 1000)]
-        interval_ms: u64,
-        #[arg(short, long)]
-        duration: Option<u64>,
-    },
-}
+// #[derive(Subcommand)]
+// enum Commands { ... } removed
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -47,19 +51,36 @@ async fn main() -> anyhow::Result<()> {
 
     let reporter = ReportingClient::new(server_url);
 
-    match cli.command {
-        Commands::Server { bind } => {
-            run_server(&bind).await?;
-        }
-        Commands::Client {
-            target,
-            count,
-            interval_ms,
-            duration,
-        } => {
-            let run_duration = duration.unwrap_or(config.duration_secs);
-            run_client(&target, count, interval_ms, run_duration, reporter).await?;
-        }
+    let mode_or_target = cli.mode_or_target.unwrap_or_else(|| {
+        eprintln!("Usage: sip-tool.exe [server|client] [TARGET]\n");
+        eprintln!("Examples:");
+        eprintln!("  sip-tool.exe server                             # Start server on 0.0.0.0:5060");
+        eprintln!("  sip-tool.exe 192.168.1.10                       # Start client to 192.168.1.10:5060");
+        eprintln!("  sip-tool.exe client 192.168.1.10                # Explicit client to 192.168.1.10:5060");
+        eprintln!("  sip-tool.exe 192.168.1.10:5061 -c 10            # Target specific port, 10 calls");
+        std::process::exit(1);
+    });
+
+    if mode_or_target.eq_ignore_ascii_case("server") {
+        run_server(&cli.bind).await?;
+    } else {
+        let raw_target = if mode_or_target.eq_ignore_ascii_case("client") {
+            cli.explicit_target.unwrap_or_else(|| {
+                eprintln!("Error: Target must be provided when using 'client' mode.");
+                std::process::exit(1);
+            })
+        } else {
+            mode_or_target
+        };
+
+        let target = if raw_target.contains(':') {
+            raw_target
+        } else {
+            format!("{}:5060", raw_target)
+        };
+
+        let run_duration = cli.duration.unwrap_or(config.duration_secs);
+        run_client(&target, cli.count, cli.interval_ms, run_duration, reporter).await?;
     }
 
     Ok(())

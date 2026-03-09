@@ -8,6 +8,8 @@ members = [
     "sip-tool",
     "udp-bench",
     "mtu-discovery",
+    "path-tool",
+    "tcp-bench",
 ]
 resolver = "2"
 
